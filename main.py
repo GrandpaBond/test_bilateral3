@@ -1,11 +1,11 @@
 # --- TESTING & PERFORMANCE ---
 def check():
-    global L_SELECT, R_SELECT, Lmm, Rmm, status_val, agc_val
+    global L_SELECT, R_SELECT, Lcycles, Rcycles, status_val, agc_val
     basic.show_string("L=" + str(L_SELECT) + "R=" +  str(R_SELECT))
     as5600_read(L_SELECT)
-    basic.show_string("Lmm=" + str(read_rotation(L_SELECT)) + ",S=" + str(status_val) + ",A=" + str(agc_val))
+    basic.show_string("Lcycles=" + str(read_rotation(L_SELECT)) + ",S=" + str(status_val) + ",A=" + str(agc_val))
     as5600_read(R_SELECT)
-    basic.show_string("Rmm=" + str(read_rotation(R_SELECT)) + ",S=" + str(status_val) + ",A=" + str(agc_val))
+    basic.show_string("Rcycles=" + str(read_rotation(R_SELECT)) + ",S=" + str(status_val) + ",A=" + str(agc_val))
 def time_point24():
     dial24_init()
     ms = 0 - input.running_time()
@@ -15,10 +15,10 @@ def time_point24():
     dial24_finish()
     basic.show_number(ms)
     basic.pause(5000)
-def time_update_track():
+def time_track_update():
     ms2 = 0 - input.running_time()
     for index2 in range(1000):
-        update_track()
+        track_update()
     ms2 += input.running_time()
     basic.clear_screen()
     basic.show_number(ms2)
@@ -31,55 +31,40 @@ def time_update_track():
 def activate():
     global active
     datalogger.delete_log()
-    datalogger.set_columns(["Lstep", "Lmm", "Rstep", "Rmm"])
+    datalogger.set_columns(["Lstep%", "Lcycles", "Rstep%", "Rcycles", "distance", "turn"])
     datalogger.include_timestamp(FlashLogTimeStampFormat.SECONDS)
-    start_track()
+    track_start()
     active = 1
-def start_track():
-    global Lmm, Lstep, Lstep_was, Rmm, Rstep, Rstep_was, L_SELECT, R_SELECT
-    Lmm = read_rotation(L_SELECT)
-    Lstep = 0
-    Lstep_was = 0
-    Rmm = read_rotation(R_SELECT)
-    Rstep = 0
-    Rstep_was = 0
-def update_track():
-    global Lstep, Lmm, Rstep_was, Rstep, Rmm, L_SELECT, R_SELECT, JUMP, TURN
-    # Left side: apply "flywheel" prediction
-    guess = 2 * Lstep - Lstep_was
-    Lstep = 0 - Lmm
-    # (new reading is always modulo TURN)
-    Lmm = read_rotation(L_SELECT)
-    Lstep += Lmm
-    # positive if lower than expected
-    error = guess - Lstep
-    if error > JUMP:
-        # Ignore a small shortfall :  Lstep just shows slight slowing.
-        # Lstep being too low by more than JUMP, means it's just overflowed
-        # (or has rolled round going forwards more than once previously)
-        # so add in enough extra full TURNs to leave just a small shortfall
-        Lstep += TURN * Math.round(error / TURN)
-    # positive if higher than expected
-    error = Lstep - guess
-    if error > JUMP:
-        # Again, ignore a small gain :  Lstep correctly reflects speed change.
-        # Lstep being too high by more than JUMP, means it's just underflowed
-        # (or has rolled round going backwards more than once previously)
-        # so subtract enough full TURNs to leave just a small gain
-        Lstep += (0 - TURN) * Math.round(error / TURN)
+def track_start():
+    global Lcycles, Lstep, Lstep_was, Rcycles, Rstep, Rstep_was, L_SELECT, R_SELECT
+    Lcycles = 0
+    Lstep = read_rotation(L_SELECT) / 4096
     Lstep_was = Lstep
-    # Now repeat all processing for Right side
-    guess = 2 * Rstep - Rstep_was
-    Rstep = 0 - Rmm
-    Rmm = read_rotation(R_SELECT)
-    Rstep += Rmm
-    error = guess - Rstep
-    if error > JUMP:
-        Rstep += TURN * Math.round(error / TURN)
-    error = Rstep - guess
-    if error > JUMP:
-        Rstep += (0 - TURN) * Math.round(error / TURN)
+    Rcycles = 0
+    Rstep = read_rotation(R_SELECT) / 4096
     Rstep_was = Rstep
+def track_update():
+    global Lcycles, Lstep, Lstep_was, Rcycles, Rstep, Rstep_was, L_SELECT, R_SELECT, JUMP
+    Lstep = read_rotation(L_SELECT) / 4096
+    delta = Lstep - Lstep_was
+    if (Lstep_was < 0) and (delta > JUMP):
+        delta += -1
+    if (Lstep_was > 0) and (delta < (0- JUMP)):
+        delta += 1
+    Lcycles += delta
+    Lstep_was = Lstep
+    Rstep = read_rotation(R_SELECT) / 4096
+    delta = Rstep - Rstep_was
+    if (Rstep_was < 0) and (delta > JUMP):
+        delta += -1
+    if (Rstep_was > 0) and (delta < (0- JUMP)):
+        delta += 1
+    Rcycles += delta
+    Rstep_was = Rstep
+def track_distance():
+    return ((Lcycles + Lstep + Rcycles + Rstep) * MM_PER_CYCLE / 2)
+def track_turn():
+    return ((Lcycles + Lstep - Rcycles - Rstep) * DEG_PER_CYCLE)
 #
 #
 # --- DIAL24 ---
@@ -141,7 +126,7 @@ def read_rotation(select: number):
     # Write 1 byte = 12  to  select RAW register.
     pins.i2c_write_number(AS5600_ADDR, RAW_REG, NumberFormat.INT8_LE, False)
     # basic.pause(1)
-    # Read 2 bytes of RAW rotation, then convert to mm of travel
+    # Read 2 bytes of RAW rotation
     return pins.i2c_read_number(AS5600_ADDR, NumberFormat.INT16_BE, False)
 def fetch_byte_reg(byte_reg: number, select: number):
     global MPX_ADDR, AS5600_ADDR
@@ -215,7 +200,7 @@ def Ubyte(val2: number):
 # --- SET LITERALS ---
 def set_defs():
     global MPX_ADDR, AS5600_ADDR, CONFIG_REG, AGC_REG, STATUS_REG, RAW_REG
-    global L_SELECT, R_SELECT, TICKS_PER_MM, TURN, JUMP
+    global L_SELECT, R_SELECT, MM_PER_CYCLE
     # Address multiplexor on 0x70
     MPX_ADDR = 112
     # Address rotation sensor on 0x36
@@ -232,13 +217,15 @@ def set_defs():
     L_SELECT = 1
     # Set binary 00000010 to select line 1
     R_SELECT = 2
-    TICKS_PER_MM = 71.61
-    TURN = 4096 / TICKS_PER_MM
-    JUMP = TURN * 0.3
+    MM_PER_CYCLE = 71.61
+    DEG_PER_CYCLE = 39.25
+    JUMP = 0.25
+
 #
 #
 # --- DECLARATIONS ---
-TICKS_PER_MM = 0
+MM_PER_CYCLE = 0
+DEG_PER_CYCLE = 0
 RAW_REG = 0
 AGC_REG = 0
 STATUS_REG = 0
@@ -257,14 +244,16 @@ dial24_list: List[number] = []
 Side_is_L = 0
 Rstep_was = 0
 Rstep = 0
-Rmm = 0
+Rcycles = 0
 Lstep_was = 0
 Lstep = 0
-Lmm = 0
+Lcycles = 0
 agc_val = 0
 status_val = 0
 config_val = 0
 raw_val = 0
+distance = 0
+turn = 0
 #
 #
 # --- MAIN CODE ---
@@ -278,7 +267,7 @@ basic.pause(1000)
 # dial24_finish()
 # basic.pause(1000)
 switch_sides()
-time_update_track()
+# time_update_track()
 #start_track()
 #basic.show_number(read_rotation(L_SELECT))
 basic.pause(1000)
@@ -323,23 +312,36 @@ def on_logo_pressed():
     switch_sides()
 input.on_logo_event(TouchButtonEvent.PRESSED, on_logo_pressed)
 def on_every_interval():
+    global Lcycles, Lstep, Rcycles, Rstep, distance, turn
     if active == 1:
-        update_track()
-        datalogger.log_data([datalogger.create_cv("Lstep", Math.round(Lstep)),
-                datalogger.create_cv("Lmm", Math.round(Lmm)),
-                datalogger.create_cv("Rstep", Math.round(Rstep)),
-                datalogger.create_cv("Rmm", Math.round(Rmm))])
+        track_update()
+        distance = track_distance()
+        turn = track_turn()
+    #********************
+        datalogger.log_data([datalogger.create_cv("Lstep%", Math.round(Lstep * 100)),
+                datalogger.create_cv("Lcycles", Math.round(Lcycles)),
+                datalogger.create_cv("Rstep%", Math.round(Rstep * 100)),
+                datalogger.create_cv("Rcycles", Math.round(Rcycles)),
+                datalogger.create_cv("distance", Math.round(distance)),
+                datalogger.create_cv("turn", Math.round(turn))])
+        #********************
 loops.every_interval(50, on_every_interval)
 def on_every_interval2():
-    global Lstep, Lmm, Rstep_was, Rstep, Rmm
+    global Lcycles, Lstep, Rcycles, Rstep, distance, turn
     if active == 1:
-        datalogger.log_data([datalogger.create_cv("Lstep", Math.round(Lstep)),
-                datalogger.create_cv("Lmm", Math.round(Lmm)),
-                datalogger.create_cv("Rstep", Math.round(Rstep)),
-                datalogger.create_cv("Rmm", Math.round(Rmm))])
+        distance = track_distance()
+        turn = track_turn()
+        datalogger.log_data([datalogger.create_cv("Lstep%", Math.round(Lstep * 100)),
+                datalogger.create_cv("Lcycles", Math.round(Lcycles)),
+                datalogger.create_cv("Rstep%", Math.round(Rstep * 100)),
+                datalogger.create_cv("Rcycles", Math.round(Rcycles)),
+                datalogger.create_cv("distance", Math.round(distance)),
+                datalogger.create_cv("turn", Math.round(turn))])
 # loops.every_interval(200, on_every_interval2)
 def on_log_full():
     global active
     active = 1 - active
     dial24_finish()
+    set_Lspeed(0)
+    set_Rspeed(0)
 datalogger.on_log_full(on_log_full)

@@ -3,9 +3,9 @@ function check() {
     
     basic.showString("L=" + ("" + L_SELECT) + "R=" + ("" + R_SELECT))
     as5600_read(L_SELECT)
-    basic.showString("Lmm=" + ("" + read_rotation(L_SELECT)) + ",S=" + ("" + status_val) + ",A=" + ("" + agc_val))
+    basic.showString("Lcycles=" + ("" + read_rotation(L_SELECT)) + ",S=" + ("" + status_val) + ",A=" + ("" + agc_val))
     as5600_read(R_SELECT)
-    basic.showString("Rmm=" + ("" + read_rotation(R_SELECT)) + ",S=" + ("" + status_val) + ",A=" + ("" + agc_val))
+    basic.showString("Rcycles=" + ("" + read_rotation(R_SELECT)) + ",S=" + ("" + status_val) + ",A=" + ("" + agc_val))
 }
 
 function time_point24() {
@@ -20,10 +20,10 @@ function time_point24() {
     basic.pause(5000)
 }
 
-function time_update_track() {
+function time_track_update() {
     let ms2 = 0 - input.runningTime()
     for (let index2 = 0; index2 < 1000; index2++) {
-        update_track()
+        track_update()
     }
     ms2 += input.runningTime()
     basic.clearScreen()
@@ -39,68 +39,56 @@ function time_update_track() {
 function activate() {
     
     datalogger.deleteLog()
-    datalogger.setColumns(["Lstep", "Lmm", "Rstep", "Rmm"])
+    datalogger.setColumns(["Lstep%", "Lcycles", "Rstep%", "Rcycles", "distance", "turn"])
     datalogger.includeTimestamp(FlashLogTimeStampFormat.Seconds)
-    start_track()
+    track_start()
     active = 1
 }
 
-function start_track() {
+function track_start() {
     
-    Lmm = read_rotation(L_SELECT)
-    Lstep = 0
-    Lstep_was = 0
-    Rmm = read_rotation(R_SELECT)
-    Rstep = 0
-    Rstep_was = 0
+    Lcycles = 0
+    Lstep = read_rotation(L_SELECT) / 4096
+    Lstep_was = Lstep
+    Rcycles = 0
+    Rstep = read_rotation(R_SELECT) / 4096
+    Rstep_was = Rstep
 }
 
-function update_track() {
-    let Lstep_was: number;
+function track_update() {
     
-    //  Left side: apply "flywheel" prediction
-    let guess = 2 * Lstep - Lstep_was
-    Lstep = 0 - Lmm
-    //  (new reading is always modulo TURN)
-    Lmm = read_rotation(L_SELECT)
-    Lstep += Lmm
-    //  positive if lower than expected
-    let error = guess - Lstep
-    if (error > JUMP) {
-        //  Ignore a small shortfall :  Lstep just shows slight slowing.
-        //  Lstep being too low by more than JUMP, means it's just overflowed
-        //  (or has rolled round going forwards more than once previously)
-        //  so add in enough extra full TURNs to leave just a small shortfall
-        Lstep += TURN * Math.round(error / TURN)
+    Lstep = read_rotation(L_SELECT) / 4096
+    let delta = Lstep - Lstep_was
+    if (Lstep_was < 0 && delta > JUMP) {
+        delta += -1
     }
     
-    //  positive if higher than expected
-    error = Lstep - guess
-    if (error > JUMP) {
-        //  Again, ignore a small gain :  Lstep correctly reflects speed change.
-        //  Lstep being too high by more than JUMP, means it's just underflowed
-        //  (or has rolled round going backwards more than once previously)
-        //  so subtract enough full TURNs to leave just a small gain
-        Lstep += (0 - TURN) * Math.round(error / TURN)
+    if (Lstep_was > 0 && delta < 0 - JUMP) {
+        delta += 1
     }
     
+    Lcycles += delta
     Lstep_was = Lstep
-    //  Now repeat all processing for Right side
-    guess = 2 * Rstep - Rstep_was
-    Rstep = 0 - Rmm
-    Rmm = read_rotation(R_SELECT)
-    Rstep += Rmm
-    error = guess - Rstep
-    if (error > JUMP) {
-        Rstep += TURN * Math.round(error / TURN)
+    Rstep = read_rotation(R_SELECT) / 4096
+    delta = Rstep - Rstep_was
+    if (Rstep_was < 0 && delta > JUMP) {
+        delta += -1
     }
     
-    error = Rstep - guess
-    if (error > JUMP) {
-        Rstep += (0 - TURN) * Math.round(error / TURN)
+    if (Rstep_was > 0 && delta < 0 - JUMP) {
+        delta += 1
     }
     
+    Rcycles += delta
     Rstep_was = Rstep
+}
+
+function track_distance(): number {
+    return (Lcycles + Lstep + Rcycles + Rstep) * MM_PER_CYCLE / 2
+}
+
+function track_turn(): number {
+    return (Lcycles + Lstep - Rcycles - Rstep) * DEG_PER_CYCLE
 }
 
 // 
@@ -155,7 +143,7 @@ function read_rotation(select: number): number {
     //  Write 1 byte = 12  to  select RAW register.
     pins.i2cWriteNumber(AS5600_ADDR, RAW_REG, NumberFormat.Int8LE, false)
     //  basic.pause(1)
-    //  Read 2 bytes of RAW rotation, then convert to mm of travel
+    //  Read 2 bytes of RAW rotation
     return pins.i2cReadNumber(AS5600_ADDR, NumberFormat.Int16BE, false)
 }
 
@@ -272,15 +260,16 @@ function set_defs() {
     L_SELECT = 1
     //  Set binary 00000010 to select line 1
     R_SELECT = 2
-    TICKS_PER_MM = 71.61
-    TURN = 4096 / TICKS_PER_MM
-    JUMP = TURN * 0.3
+    MM_PER_CYCLE = 71.61
+    let DEG_PER_CYCLE = 39.25
+    let JUMP = 0.25
 }
 
 // 
 // 
 //  --- DECLARATIONS ---
-let TICKS_PER_MM = 0
+let MM_PER_CYCLE = 0
+let DEG_PER_CYCLE = 0
 let RAW_REG = 0
 let AGC_REG = 0
 let STATUS_REG = 0
@@ -299,14 +288,16 @@ let dial24_list : number[] = []
 let Side_is_L = 0
 let Rstep_was = 0
 let Rstep = 0
-let Rmm = 0
+let Rcycles = 0
 let Lstep_was = 0
 let Lstep = 0
-let Lmm = 0
+let Lcycles = 0
 let agc_val = 0
 let status_val = 0
 let config_val = 0
 let raw_val = 0
+let distance = 0
+let turn = 0
 // 
 // 
 //  --- MAIN CODE ---
@@ -320,7 +311,7 @@ basic.pause(1000)
 //  dial24_finish()
 //  basic.pause(1000)
 switch_sides()
-time_update_track()
+//  time_update_track()
 // start_track()
 // basic.show_number(read_rotation(L_SELECT))
 basic.pause(1000)
@@ -374,17 +365,24 @@ input.onButtonPressed(Button.AB, function on_button_pressed_ab() {
 input.onLogoEvent(TouchButtonEvent.Pressed, function on_logo_pressed() {
     switch_sides()
 })
+// ********************
 loops.everyInterval(50, function on_every_interval() {
+    
     if (active == 1) {
-        update_track()
-        datalogger.logData([datalogger.createCV("Lstep", Math.round(Lstep)), datalogger.createCV("Lmm", Math.round(Lmm)), datalogger.createCV("Rstep", Math.round(Rstep)), datalogger.createCV("Rmm", Math.round(Rmm))])
+        track_update()
+        distance = track_distance()
+        turn = track_turn()
+        // ********************
+        datalogger.logData([datalogger.createCV("Lstep%", Math.round(Lstep * 100)), datalogger.createCV("Lcycles", Math.round(Lcycles)), datalogger.createCV("Rstep%", Math.round(Rstep * 100)), datalogger.createCV("Rcycles", Math.round(Rcycles)), datalogger.createCV("distance", Math.round(distance)), datalogger.createCV("turn", Math.round(turn))])
     }
     
 })
 function on_every_interval2() {
     
     if (active == 1) {
-        datalogger.logData([datalogger.createCV("Lstep", Math.round(Lstep)), datalogger.createCV("Lmm", Math.round(Lmm)), datalogger.createCV("Rstep", Math.round(Rstep)), datalogger.createCV("Rmm", Math.round(Rmm))])
+        distance = track_distance()
+        turn = track_turn()
+        datalogger.logData([datalogger.createCV("Lstep%", Math.round(Lstep * 100)), datalogger.createCV("Lcycles", Math.round(Lcycles)), datalogger.createCV("Rstep%", Math.round(Rstep * 100)), datalogger.createCV("Rcycles", Math.round(Rcycles)), datalogger.createCV("distance", Math.round(distance)), datalogger.createCV("turn", Math.round(turn))])
     }
     
 }
@@ -394,4 +392,6 @@ datalogger.onLogFull(function on_log_full() {
     
     active = 1 - active
     dial24_finish()
+    set_Lspeed(0)
+    set_Rspeed(0)
 })
