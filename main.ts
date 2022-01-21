@@ -39,7 +39,7 @@ function time_track_update() {
 function activate() {
     
     datalogger.deleteLog()
-    datalogger.setColumns(["Lstep%", "Lcycles", "Rstep%", "Rcycles", "distance", "turn"])
+    datalogger.setColumns(["Lfraction%", "Lcycles", "Rfraction%", "Rcycles", "distance", "turn"])
     datalogger.includeTimestamp(FlashLogTimeStampFormat.Seconds)
     track_start()
     active = 1
@@ -48,47 +48,51 @@ function activate() {
 function track_start() {
     
     Lcycles = 0
-    Lstep = read_rotation(L_SELECT) / 4096
-    Lstep_was = Lstep
+    Lfraction = read_rotation(L_SELECT) / 4096
+    Lfraction_was = Lfraction
     Rcycles = 0
-    Rstep = read_rotation(R_SELECT) / 4096
-    Rstep_was = Rstep
+    Rfraction = read_rotation(R_SELECT) / 4096
+    Rfraction_was = Rfraction
 }
 
 function track_update() {
     
-    Lstep = read_rotation(L_SELECT) / 4096
-    let delta = Lstep - Lstep_was
-    if (Lstep_was < 0 && delta > JUMP) {
+    let delta_was = Lfraction - Lfraction_was
+    let new_ = read_rotation(L_SELECT) / 4096
+    let delta = new_ - Lfraction
+    if (delta_was < 0 && delta > JUMP) {
         delta += -1
     }
     
-    if (Lstep_was > 0 && delta < 0 - JUMP) {
+    if (delta_was > 0 && delta < 0 - JUMP) {
         delta += 1
     }
     
     Lcycles += delta
-    Lstep_was = Lstep
-    Rstep = read_rotation(R_SELECT) / 4096
-    delta = Rstep - Rstep_was
-    if (Rstep_was < 0 && delta > JUMP) {
+    Lfraction_was = Lfraction
+    Lfraction = new_
+    delta_was = Rfraction - Rfraction_was
+    new_ = read_rotation(R_SELECT) / 4096
+    delta = new_ - Rfraction
+    if (delta_was < 0 && delta > JUMP) {
         delta += -1
     }
     
-    if (Rstep_was > 0 && delta < 0 - JUMP) {
+    if (delta_was > 0 && delta < 0 - JUMP) {
         delta += 1
     }
     
     Rcycles += delta
-    Rstep_was = Rstep
+    Rfraction_was = Rfraction
+    Rfraction = new_
 }
 
 function track_distance(): number {
-    return (Lcycles + Lstep + Rcycles + Rstep) * MM_PER_CYCLE / 2
+    return (Lcycles + Rcycles) * MM_PER_CYCLE / 2
 }
 
 function track_turn(): number {
-    return (Lcycles + Lstep - Rcycles - Rstep) * DEG_PER_CYCLE
+    return (Lcycles - Rcycles) * DEG_PER_CYCLE
 }
 
 // 
@@ -286,11 +290,11 @@ let active = 0
 let dial24_is = 0
 let dial24_list : number[] = []
 let Side_is_L = 0
-let Rstep_was = 0
-let Rstep = 0
+let Rfraction_was = 0
+let Rfraction = 0
 let Rcycles = 0
-let Lstep_was = 0
-let Lstep = 0
+let Lfraction_was = 0
+let Lfraction = 0
 let Lcycles = 0
 let agc_val = 0
 let status_val = 0
@@ -325,13 +329,13 @@ input.onButtonPressed(Button.A, function on_button_pressed_a() {
         if (Lspeed > -100) {
             Lspeed += -10
             set_Lspeed(Lspeed)
-            dial24_point(Math.round(Lstep))
+            dial24_point(Math.round(Lfraction))
         }
         
     } else if (Rspeed > -100) {
         Rspeed += -10
         set_Rspeed(Rspeed)
-        dial24_point(Math.round(Rstep))
+        dial24_point(Math.round(Rfraction))
     }
     
 })
@@ -341,13 +345,13 @@ input.onButtonPressed(Button.B, function on_button_pressed_b() {
         if (Lspeed < 100) {
             Lspeed += 10
             set_Lspeed(Lspeed)
-            dial24_point(Math.round(Lstep))
+            dial24_point(Math.round(Lfraction))
         }
         
     } else if (Rspeed < 100) {
         Rspeed += 10
         set_Rspeed(Rspeed)
-        dial24_point(Math.round(Rstep))
+        dial24_point(Math.round(Rfraction))
     }
     
 })
@@ -373,7 +377,7 @@ loops.everyInterval(50, function on_every_interval() {
         distance = track_distance()
         turn = track_turn()
         // ********************
-        datalogger.logData([datalogger.createCV("Lstep%", Math.round(Lstep * 100)), datalogger.createCV("Lcycles", Math.round(Lcycles)), datalogger.createCV("Rstep%", Math.round(Rstep * 100)), datalogger.createCV("Rcycles", Math.round(Rcycles)), datalogger.createCV("distance", Math.round(distance)), datalogger.createCV("turn", Math.round(turn))])
+        datalogger.logData([datalogger.createCV("Lfraction%", Math.round(Lfraction * 100)), datalogger.createCV("Lcycles", Math.round(Lcycles)), datalogger.createCV("Rfraction%", Math.round(Rfraction * 100)), datalogger.createCV("Rcycles", Math.round(Rcycles)), datalogger.createCV("distance", Math.round(distance)), datalogger.createCV("turn", Math.round(turn))])
     }
     
 })
@@ -382,7 +386,7 @@ function on_every_interval2() {
     if (active == 1) {
         distance = track_distance()
         turn = track_turn()
-        datalogger.logData([datalogger.createCV("Lstep%", Math.round(Lstep * 100)), datalogger.createCV("Lcycles", Math.round(Lcycles)), datalogger.createCV("Rstep%", Math.round(Rstep * 100)), datalogger.createCV("Rcycles", Math.round(Rcycles)), datalogger.createCV("distance", Math.round(distance)), datalogger.createCV("turn", Math.round(turn))])
+        datalogger.logData([datalogger.createCV("Lfraction%", Math.round(Lfraction * 100)), datalogger.createCV("Lcycles", Math.round(Lcycles)), datalogger.createCV("Rfraction%", Math.round(Rfraction * 100)), datalogger.createCV("Rcycles", Math.round(Rcycles)), datalogger.createCV("distance", Math.round(distance)), datalogger.createCV("turn", Math.round(turn))])
     }
     
 }

@@ -31,40 +31,45 @@ def time_track_update():
 def activate():
     global active
     datalogger.delete_log()
-    datalogger.set_columns(["Lstep%", "Lcycles", "Rstep%", "Rcycles", "distance", "turn"])
+    datalogger.set_columns(["Lfraction%", "Lcycles", "Rfraction%", "Rcycles", "distance", "turn"])
     datalogger.include_timestamp(FlashLogTimeStampFormat.SECONDS)
     track_start()
     active = 1
 def track_start():
-    global Lcycles, Lstep, Lstep_was, Rcycles, Rstep, Rstep_was, L_SELECT, R_SELECT
+    global Lcycles, Lfraction, Lfraction_was, Rcycles, Rfraction, Rfraction_was, L_SELECT, R_SELECT
     Lcycles = 0
-    Lstep = read_rotation(L_SELECT) / 4096
-    Lstep_was = Lstep
+    Lfraction = read_rotation(L_SELECT) / 4096
+    Lfraction_was = Lfraction
     Rcycles = 0
-    Rstep = read_rotation(R_SELECT) / 4096
-    Rstep_was = Rstep
+    Rfraction = read_rotation(R_SELECT) / 4096
+    Rfraction_was = Rfraction
 def track_update():
-    global Lcycles, Lstep, Lstep_was, Rcycles, Rstep, Rstep_was, L_SELECT, R_SELECT, JUMP
-    Lstep = read_rotation(L_SELECT) / 4096
-    delta = Lstep - Lstep_was
-    if (Lstep_was < 0) and (delta > JUMP):
+    global Lcycles, Lfraction, Lfraction_was, Rcycles, Rfraction, Rfraction_was, L_SELECT, R_SELECT, JUMP
+    delta_was = Lfraction - Lfraction_was
+    new = read_rotation(L_SELECT) / 4096
+    delta = new - Lfraction
+    if (delta_was < 0) and (delta > JUMP):
         delta += -1
-    if (Lstep_was > 0) and (delta < (0- JUMP)):
+    if (delta_was > 0) and (delta < (0- JUMP)):
         delta += 1
     Lcycles += delta
-    Lstep_was = Lstep
-    Rstep = read_rotation(R_SELECT) / 4096
-    delta = Rstep - Rstep_was
-    if (Rstep_was < 0) and (delta > JUMP):
+    Lfraction_was = Lfraction
+    Lfraction = new
+    delta_was = Rfraction - Rfraction_was
+    new = read_rotation(R_SELECT) / 4096
+    delta = new - Rfraction
+    if (delta_was < 0) and (delta > JUMP):
         delta += -1
-    if (Rstep_was > 0) and (delta < (0- JUMP)):
+    if (delta_was > 0) and (delta < (0- JUMP)):
         delta += 1
     Rcycles += delta
-    Rstep_was = Rstep
+    Rfraction_was = Rfraction
+    Rfraction = new
+
 def track_distance():
-    return ((Lcycles + Lstep + Rcycles + Rstep) * MM_PER_CYCLE / 2)
+    return ((Lcycles + Rcycles) * MM_PER_CYCLE / 2)
 def track_turn():
-    return ((Lcycles + Lstep - Rcycles - Rstep) * DEG_PER_CYCLE)
+    return ((Lcycles - Rcycles) * DEG_PER_CYCLE)
 #
 #
 # --- DIAL24 ---
@@ -242,11 +247,11 @@ active = 0
 dial24_is = 0
 dial24_list: List[number] = []
 Side_is_L = 0
-Rstep_was = 0
-Rstep = 0
+Rfraction_was = 0
+Rfraction = 0
 Rcycles = 0
-Lstep_was = 0
-Lstep = 0
+Lfraction_was = 0
+Lfraction = 0
 Lcycles = 0
 agc_val = 0
 status_val = 0
@@ -276,28 +281,28 @@ basic.pause(1000)
 #
 # --- SET INTERRUPT HANDLERS ---
 def on_button_pressed_a():
-    global Lspeed, Rspeed, Rstep, Lstep
+    global Lspeed, Rspeed, Rfraction, Lfraction
     if Side_is_L == 1:
         if Lspeed > -100:
             Lspeed += -10
             set_Lspeed(Lspeed)
-            dial24_point(Math.round(Lstep))
+            dial24_point(Math.round(Lfraction))
     elif Rspeed > -100:
         Rspeed += -10
         set_Rspeed(Rspeed)
-        dial24_point(Math.round(Rstep))
+        dial24_point(Math.round(Rfraction))
 input.on_button_pressed(Button.A, on_button_pressed_a)
 def on_button_pressed_b():
-    global Lspeed, Rspeed, Rstep, Lstep
+    global Lspeed, Rspeed, Rfraction, Lfraction
     if Side_is_L == 1:
         if Lspeed < 100:
             Lspeed += 10
             set_Lspeed(Lspeed)
-            dial24_point(Math.round(Lstep))
+            dial24_point(Math.round(Lfraction))
     elif Rspeed < 100:
         Rspeed += 10
         set_Rspeed(Rspeed)
-        dial24_point(Math.round(Rstep))
+        dial24_point(Math.round(Rfraction))
 input.on_button_pressed(Button.B, on_button_pressed_b)
 def on_button_pressed_ab():
     global active
@@ -312,28 +317,28 @@ def on_logo_pressed():
     switch_sides()
 input.on_logo_event(TouchButtonEvent.PRESSED, on_logo_pressed)
 def on_every_interval():
-    global Lcycles, Lstep, Rcycles, Rstep, distance, turn
+    global Lcycles, Lfraction, Rcycles, Rfraction, distance, turn
     if active == 1:
         track_update()
         distance = track_distance()
         turn = track_turn()
     #********************
-        datalogger.log_data([datalogger.create_cv("Lstep%", Math.round(Lstep * 100)),
+        datalogger.log_data([datalogger.create_cv("Lfraction%", Math.round(Lfraction * 100)),
                 datalogger.create_cv("Lcycles", Math.round(Lcycles)),
-                datalogger.create_cv("Rstep%", Math.round(Rstep * 100)),
+                datalogger.create_cv("Rfraction%", Math.round(Rfraction * 100)),
                 datalogger.create_cv("Rcycles", Math.round(Rcycles)),
                 datalogger.create_cv("distance", Math.round(distance)),
                 datalogger.create_cv("turn", Math.round(turn))])
         #********************
 loops.every_interval(50, on_every_interval)
 def on_every_interval2():
-    global Lcycles, Lstep, Rcycles, Rstep, distance, turn
+    global Lcycles, Lfraction, Rcycles, Rfraction, distance, turn
     if active == 1:
         distance = track_distance()
         turn = track_turn()
-        datalogger.log_data([datalogger.create_cv("Lstep%", Math.round(Lstep * 100)),
+        datalogger.log_data([datalogger.create_cv("Lfraction%", Math.round(Lfraction * 100)),
                 datalogger.create_cv("Lcycles", Math.round(Lcycles)),
-                datalogger.create_cv("Rstep%", Math.round(Rstep * 100)),
+                datalogger.create_cv("Rfraction%", Math.round(Rfraction * 100)),
                 datalogger.create_cv("Rcycles", Math.round(Rcycles)),
                 datalogger.create_cv("distance", Math.round(distance)),
                 datalogger.create_cv("turn", Math.round(turn))])
